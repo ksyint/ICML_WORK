@@ -1,5 +1,3 @@
-# based on https://github.com/isl-org/MiDaS
-
 import cv2
 import torch
 import torch.nn as nn
@@ -20,20 +18,16 @@ ISL_PATHS = {
 
 
 def disabled_train(self, mode=True):
-    """Overwrite model.train with this function to make sure train/eval mode
-    does not change anymore."""
     return self
 
 
 def load_midas_transform(model_type):
-    # https://github.com/isl-org/MiDaS/blob/master/run.py
-    # load transform only
-    if model_type == "dpt_large":  # DPT-Large
+    if model_type == "dpt_large":
         net_w, net_h = 384, 384
         resize_mode = "minimal"
         normalization = NormalizeImage(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
-    elif model_type == "dpt_hybrid":  # DPT-Hybrid
+    elif model_type == "dpt_hybrid":
         net_w, net_h = 384, 384
         resize_mode = "minimal"
         normalization = NormalizeImage(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
@@ -71,10 +65,8 @@ def load_midas_transform(model_type):
 
 
 def load_model(model_type):
-    # https://github.com/isl-org/MiDaS/blob/master/run.py
-    # load network
     model_path = ISL_PATHS[model_type]
-    if model_type == "dpt_large":  # DPT-Large
+    if model_type == "dpt_large":
         model = DPTDepthModel(
             path=model_path,
             backbone="vitl16_384",
@@ -84,7 +76,7 @@ def load_model(model_type):
         resize_mode = "minimal"
         normalization = NormalizeImage(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
-    elif model_type == "dpt_hybrid":  # DPT-Hybrid
+    elif model_type == "dpt_hybrid":
         model = DPTDepthModel(
             path=model_path,
             backbone="vitb_rn50_384",
@@ -155,8 +147,6 @@ class MiDaSInference(nn.Module):
         self.model.train = disabled_train
 
     def forward(self, x):
-        # x in 0..1 as produced by calling self.transform on a 0..1 float64 numpy array
-        # NOTE: we expect that the correct transform has been called during dataloading.
         with torch.no_grad():
             prediction = self.model(x)
             prediction = torch.nn.functional.interpolate(
@@ -167,4 +157,3 @@ class MiDaSInference(nn.Module):
             )
         assert prediction.shape == (x.shape[0], 1, x.shape[2], x.shape[3])
         return prediction
-

@@ -1,13 +1,3 @@
-# adopted from
-# https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/gaussian_diffusion.py
-# and
-# https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
-# and
-# https://github.com/openai/guided-diffusion/blob/0ba878e517b276c45d1195eb29f6f5f72659a05b/guided_diffusion/nn.py
-#
-# thanks!
-
-
 import os
 import math
 import torch
@@ -52,8 +42,6 @@ def make_ddim_timesteps(ddim_discr_method, num_ddim_timesteps, num_ddpm_timestep
     else:
         raise NotImplementedError(f'There is no ddim discretization method called "{ddim_discr_method}"')
 
-    # assert ddim_timesteps.shape[0] == num_ddim_timesteps
-    # add one to get the final alpha values right (the ones from first scale to data during sampling)
     steps_out = ddim_timesteps + 1
     if verbose:
         print(f'Selected timesteps for ddim sampler: {steps_out}')
@@ -61,11 +49,9 @@ def make_ddim_timesteps(ddim_discr_method, num_ddim_timesteps, num_ddpm_timestep
 
 
 def make_ddim_sampling_parameters(alphacums, ddim_timesteps, eta, verbose=True):
-    # select alphas for computing the variance schedule
     alphas = alphacums[ddim_timesteps]
     alphas_prev = np.asarray([alphacums[0]] + alphacums[ddim_timesteps[:-1]].tolist())
 
-    # according the the formula provided in https://arxiv.org/abs/2010.02502
     sigmas = eta * np.sqrt((1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev))
     if verbose:
         print(f'Selected alphas for ddim sampler: a_t: {alphas}; a_(t-1): {alphas_prev}')
@@ -75,16 +61,6 @@ def make_ddim_sampling_parameters(alphacums, ddim_timesteps, eta, verbose=True):
 
 
 def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
-    """
-    Create a beta schedule that discretizes the given alpha_t_bar function,
-    which defines the cumulative product of (1-beta) over time from t = [0,1].
-    :param num_diffusion_timesteps: the number of betas to produce.
-    :param alpha_bar: a lambda that takes an argument t from 0 to 1 and
-                      produces the cumulative product of (1-beta) up to that
-                      part of the diffusion process.
-    :param max_beta: the maximum beta to use; use values lower than 1 to
-                     prevent singularities.
-    """
     betas = []
     for i in range(num_diffusion_timesteps):
         t1 = i / num_diffusion_timesteps
@@ -100,15 +76,6 @@ def extract_into_tensor(a, t, x_shape):
 
 
 def checkpoint(func, inputs, params, flag):
-    """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
-    :param func: the function to evaluate.
-    :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
-    :param flag: if False, disable gradient checkpointing.
-    """
     if flag:
         args = tuple(inputs) + tuple(params)
         return CheckpointFunction.apply(func, len(inputs), *args)
@@ -134,9 +101,6 @@ class CheckpointFunction(torch.autograd.Function):
         ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
         with torch.enable_grad(), \
                 torch.cuda.amp.autocast(**ctx.gpu_autocast_kwargs):
-            # Fixes a bug where the first op in run_function modifies the
-            # Tensor storage in place, which is not allowed for detach()'d
-            # Tensors.
             shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
             output_tensors = ctx.run_function(*shallow_copies)
         input_grads = torch.autograd.grad(
@@ -152,14 +116,6 @@ class CheckpointFunction(torch.autograd.Function):
 
 
 def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
-    """
-    Create sinusoidal timestep embeddings.
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
-    :param dim: the dimension of the output.
-    :param max_period: controls the minimum frequency of the embeddings.
-    :return: an [N x dim] Tensor of positional embeddings.
-    """
     if not repeat_only:
         half = dim // 2
         freqs = torch.exp(
@@ -175,40 +131,25 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
 
 
 def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
     for p in module.parameters():
         p.detach().zero_()
     return module
 
 
 def scale_module(module, scale):
-    """
-    Scale the parameters of a module and return it.
-    """
     for p in module.parameters():
         p.detach().mul_(scale)
     return module
 
 
 def mean_flat(tensor):
-    """
-    Take the mean over all non-batch dimensions.
-    """
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
 def normalization(channels):
-    """
-    Make a standard normalization layer.
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
-    """
     return GroupNorm32(32, channels)
 
 
-# PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
 class SiLU(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
@@ -219,9 +160,6 @@ class GroupNorm32(nn.GroupNorm):
         return super().forward(x.float()).type(x.dtype)
 
 def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
     elif dims == 2:
@@ -232,16 +170,10 @@ def conv_nd(dims, *args, **kwargs):
 
 
 def linear(*args, **kwargs):
-    """
-    Create a linear module.
-    """
     return nn.Linear(*args, **kwargs)
 
 
 def avg_pool_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D average pooling module.
-    """
     if dims == 1:
         return nn.AvgPool1d(*args, **kwargs)
     elif dims == 2:

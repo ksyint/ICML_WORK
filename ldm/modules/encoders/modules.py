@@ -33,7 +33,6 @@ class ClassEmbedder(nn.Module):
     def forward(self, batch, key=None, disable_dropout=False):
         if key is None:
             key = self.key
-        # this is for use in crossattn
         c = batch[key][:, None]
         if self.ucg_rate > 0. and not disable_dropout:
             mask = 1. - torch.bernoulli(torch.ones_like(c) * self.ucg_rate)
@@ -43,32 +42,28 @@ class ClassEmbedder(nn.Module):
         return c
 
     def get_unconditional_conditioning(self, bs, device="cuda"):
-        uc_class = self.n_classes - 1  # 1000 classes --> 0 ... 999, one extra class for ucg (class 1000)
+        uc_class = self.n_classes - 1
         uc = torch.ones((bs,), device=device) * uc_class
         uc = {self.key: uc}
         return uc
 
 
 def disabled_train(self, mode=True):
-    """Overwrite model.train with this function to make sure train/eval mode
-    does not change anymore."""
     return self
 
 
 class FrozenT5Embedder(AbstractEncoder):
-    """Uses the T5 transformer encoder for text"""
-    def __init__(self, version="google/t5-v1_1-large", device="cuda", max_length=77, freeze=True):  # others are google/t5-v1_1-xl and google/t5-v1_1-xxl
+    def __init__(self, version="google/t5-v1_1-large", device="cuda", max_length=77, freeze=True):
         super().__init__()
         self.tokenizer = T5Tokenizer.from_pretrained(version)
         self.transformer = T5EncoderModel.from_pretrained(version)
         self.device = device
-        self.max_length = max_length   # TODO: typical value?
+        self.max_length = max_length
         if freeze:
             self.freeze()
 
     def freeze(self):
         self.transformer = self.transformer.eval()
-        #self.train = disabled_train
         for param in self.parameters():
             param.requires_grad = False
 
@@ -86,14 +81,13 @@ class FrozenT5Embedder(AbstractEncoder):
 
 
 class FrozenCLIPEmbedder(AbstractEncoder):
-    """Uses the CLIP transformer encoder for text (from huggingface)"""
     LAYERS = [
         "last",
         "pooled",
         "hidden"
     ]
     def __init__(self, version="openai/clip-vit-large-patch14", device="cuda", max_length=77,
-                 freeze=True, layer="last", layer_idx=None):  # clip-vit-base-patch32
+                 freeze=True, layer="last", layer_idx=None):
         super().__init__()
         assert layer in self.LAYERS
         self.tokenizer = CLIPTokenizer.from_pretrained(version)
@@ -110,7 +104,6 @@ class FrozenCLIPEmbedder(AbstractEncoder):
 
     def freeze(self):
         self.transformer = self.transformer.eval()
-        #self.train = disabled_train
         for param in self.parameters():
             param.requires_grad = False
 
@@ -132,11 +125,7 @@ class FrozenCLIPEmbedder(AbstractEncoder):
 
 
 class FrozenOpenCLIPEmbedder(AbstractEncoder):
-    """
-    Uses the OpenCLIP transformer encoder for text
-    """
     LAYERS = [
-        #"pooled",
         "last",
         "penultimate"
     ]
@@ -171,11 +160,11 @@ class FrozenOpenCLIPEmbedder(AbstractEncoder):
         return z
 
     def encode_with_transformer(self, text):
-        x = self.model.token_embedding(text)  # [batch_size, n_ctx, d_model]
+        x = self.model.token_embedding(text)
         x = x + self.model.positional_embedding
-        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = x.permute(1, 0, 2)
         x = self.text_transformer_forward(x, attn_mask=self.model.attn_mask)
-        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x.permute(1, 0, 2)
         x = self.model.ln_final(x)
         return x
 
@@ -209,5 +198,3 @@ class FrozenCLIPT5Encoder(AbstractEncoder):
         clip_z = self.clip_encoder.encode(text)
         t5_z = self.t5_encoder.encode(text)
         return [clip_z, t5_z]
-
-

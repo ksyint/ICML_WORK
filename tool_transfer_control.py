@@ -49,10 +49,8 @@ for key in keys:
         sd15_key_name = key
     if sd15_key_name in input_state_dict:
         p_new = p + input_state_dict[sd15_key_name] - sd15_state_dict[sd15_key_name]
-        # print(f'Offset clone from [{sd15_key_name}] to [{key}]')
     else:
         p_new = p
-        # print(f'Direct clone to [{key}]')
     final_state_dict[key] = p_new
 
 torch.save(final_state_dict, path_output)

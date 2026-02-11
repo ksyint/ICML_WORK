@@ -1,4 +1,3 @@
-"""SAMPLING ONLY."""
 import torch
 
 from .dpm_solver import NoiseScheduleVP, model_wrapper, DPM_Solver
@@ -45,7 +44,6 @@ class DPMSolverSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
-               # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
                ):
         if conditioning is not None:
@@ -57,7 +55,6 @@ class DPMSolverSampler(object):
                 if conditioning.shape[0] != batch_size:
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
-        # sampling
         C, H, W = shape
         size = (batch_size, C, H, W)
 

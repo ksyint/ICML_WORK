@@ -9,8 +9,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def log_txt_as_img(wh, xc, size=10):
-    # wh a tuple of (width, height)
-    # xc a list of captions to plot
     b = len(xc)
     txts = list()
     for bi in range(b):
@@ -55,10 +53,6 @@ def default(val, d):
 
 
 def mean_flat(tensor):
-    """
-    https://github.com/openai/guided-diffusion/blob/27c20a8fab9cb472df5d6bdd6c8d11c8f430b924/guided_diffusion/nn.py#L86
-    Take the mean over all non-batch dimensions.
-    """
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
@@ -88,11 +82,9 @@ def get_obj_from_str(string, reload=False):
 
 
 class AdamWwithEMAandWings(optim.Optimizer):
-    # credit to https://gist.github.com/crowsonkb/65f7265353f403714fce3b2595e0b298
-    def __init__(self, params, lr=1.e-3, betas=(0.9, 0.999), eps=1.e-8,  # TODO: check hyperparameters before using
-                 weight_decay=1.e-2, amsgrad=False, ema_decay=0.9999,   # ema decay to match previous code
+    def __init__(self, params, lr=1.e-3, betas=(0.9, 0.999), eps=1.e-8,
+                 weight_decay=1.e-2, amsgrad=False, ema_decay=0.9999,
                  ema_power=1., param_names=()):
-        """AdamW that saves EMA versions of the parameters."""
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -117,11 +109,6 @@ class AdamWwithEMAandWings(optim.Optimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
-        """Performs a single optimization step.
-        Args:
-            closure (callable, optional): A closure that reevaluates the model
-                and returns the loss.
-        """
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -151,17 +138,12 @@ class AdamWwithEMAandWings(optim.Optimizer):
 
                 state = self.state[p]
 
-                # State initialization
                 if len(state) == 0:
                     state['step'] = 0
-                    # Exponential moving average of gradient values
                     state['exp_avg'] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    # Exponential moving average of squared gradient values
                     state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
                     if amsgrad:
-                        # Maintains max of all exp. moving avg. of sq. grad. values
                         state['max_exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
-                    # Exponential moving average of parameter values
                     state['param_exp_avg'] = p.detach().float().clone()
 
                 exp_avgs.append(state['exp_avg'])
@@ -171,9 +153,7 @@ class AdamWwithEMAandWings(optim.Optimizer):
                 if amsgrad:
                     max_exp_avg_sqs.append(state['max_exp_avg_sq'])
 
-                # update the steps for each param group update
                 state['step'] += 1
-                # record the step after step update
                 state_steps.append(state['step'])
 
             optim._functional.adamw(params_with_grad,

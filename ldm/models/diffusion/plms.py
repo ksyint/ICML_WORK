@@ -1,5 +1,3 @@
-"""SAMPLING ONLY."""
-
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -35,14 +33,12 @@ class PLMSSampler(object):
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(self.model.alphas_cumprod_prev))
 
-        # calculations for diffusion q(x_t | x_{t-1}) and others
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod.cpu())))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod.cpu())))
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod.cpu())))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu())))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu() - 1)))
 
-        # ddim sampling parameters
         ddim_sigmas, ddim_alphas, ddim_alphas_prev = make_ddim_sampling_parameters(alphacums=alphas_cumprod.cpu(),
                                                                                    ddim_timesteps=self.ddim_timesteps,
                                                                                    eta=ddim_eta,verbose=verbose)
@@ -77,7 +73,6 @@ class PLMSSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
-               # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                dynamic_threshold=None,
                **kwargs
                ):
@@ -91,7 +86,6 @@ class PLMSSampler(object):
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
-        # sampling
         C, H, W = shape
         size = (batch_size, C, H, W)
         print(f'Data shape for PLMS sampling is {size}')
@@ -150,7 +144,7 @@ class PLMSSampler(object):
 
             if mask is not None:
                 assert x0 is not None
-                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+                img_orig = self.model.q_sample(x0, ts)
                 img = img_orig * mask + (1. - mask) * img
 
             outs = self.p_sample_plms(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
@@ -203,19 +197,16 @@ class PLMSSampler(object):
         sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
 
         def get_x_prev_and_pred_x0(e_t, index):
-            # select parameters corresponding to the currently considered timestep
             a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
             a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
             sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
             sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
 
-            # current prediction for x_0
             pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
             if quantize_denoised:
                 pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
             if dynamic_threshold is not None:
                 pred_x0 = norm_thresholding(pred_x0, dynamic_threshold)
-            # direction pointing to x_t
             dir_xt = (1. - a_prev - sigma_t**2).sqrt() * e_t
             noise = sigma_t * noise_like(x.shape, device, repeat_noise) * temperature
             if noise_dropout > 0.:
@@ -225,18 +216,14 @@ class PLMSSampler(object):
 
         e_t = get_model_output(x, t)
         if len(old_eps) == 0:
-            # Pseudo Improved Euler (2nd order)
             x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
             e_t_next = get_model_output(x_prev, t_next)
             e_t_prime = (e_t + e_t_next) / 2
         elif len(old_eps) == 1:
-            # 2nd order Pseudo Linear Multistep (Adams-Bashforth)
             e_t_prime = (3 * e_t - old_eps[-1]) / 2
         elif len(old_eps) == 2:
-            # 3nd order Pseudo Linear Multistep (Adams-Bashforth)
             e_t_prime = (23 * e_t - 16 * old_eps[-1] + 5 * old_eps[-2]) / 12
         elif len(old_eps) >= 3:
-            # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
             e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)

@@ -1,11 +1,3 @@
-"""
-wild mixture of
-https://github.com/lucidrains/denoising-diffusion-pytorch/blob/7706bdfc6f527f58d33f84b7b522e61e6e3164b3/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
-https://github.com/openai/improved-diffusion/blob/e94489283bb876ac1477d5dd7709bbbd2d9902ce/improved_diffusion/gaussian_diffusion.py
-https://github.com/CompVis/taming-transformers
--- merci
-"""
-
 import torch
 import torch.nn as nn
 import numpy as np
@@ -34,8 +26,6 @@ __conditioning_keys__ = {'concat': 'c_concat',
 
 
 def disabled_train(self, mode=True):
-    """Overwrite model.train with this function to make sure train/eval mode
-    does not change anymore."""
     return self
 
 
@@ -44,7 +34,6 @@ def uniform_on_device(r1, r2, shape, device):
 
 
 class DDPM(pl.LightningModule):
-    # classic DDPM with Gaussian diffusion, in image space
     def __init__(self,
                  unet_config,
                  timesteps=1000,
@@ -65,10 +54,10 @@ class DDPM(pl.LightningModule):
                  cosine_s=8e-3,
                  given_betas=None,
                  original_elbo_weight=0.,
-                 v_posterior=0.,  # weight for choosing posterior variance as sigma = (1-v) * beta_tilde + v * beta
+                 v_posterior=0.,
                  l_simple_weight=1.,
                  conditioning_key=None,
-                 parameterization="eps",  # all assuming fixed variance schedules
+                 parameterization="eps",
                  scheduler_config=None,
                  use_positional_encodings=False,
                  learn_logvar=False,
@@ -86,7 +75,7 @@ class DDPM(pl.LightningModule):
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
-        self.image_size = image_size  # try conv?
+        self.image_size = image_size
         self.channels = channels
         self.use_positional_encodings = use_positional_encodings
         self.model = DiffusionWrapper(unet_config, conditioning_key)
@@ -158,19 +147,15 @@ class DDPM(pl.LightningModule):
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(alphas_cumprod_prev))
 
-        # calculations for diffusion q(x_t | x_{t-1}) and others
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod)))
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod - 1)))
 
-        # calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (1 - self.v_posterior) * betas * (1. - alphas_cumprod_prev) / (
                 1. - alphas_cumprod) + self.v_posterior * betas
-        # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_t)
         self.register_buffer('posterior_variance', to_torch(posterior_variance))
-        # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
         self.register_buffer('posterior_log_variance_clipped', to_torch(np.log(np.maximum(posterior_variance, 1e-20))))
         self.register_buffer('posterior_mean_coef1', to_torch(
             betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
@@ -233,9 +218,7 @@ class DDPM(pl.LightningModule):
                 new_shape = param.shape
                 assert len(old_shape) == len(new_shape)
                 if len(new_shape) > 2:
-                    # we only modify first two axes
                     assert new_shape[2:] == old_shape[2:]
-                # assumes first axis corresponds to output dim
                 if not new_shape == old_shape:
                     new_param = param.clone()
                     old_param = sd[name]
@@ -270,12 +253,6 @@ class DDPM(pl.LightningModule):
             print(f"\nUnexpected Keys:\n {unexpected}")
 
     def q_mean_variance(self, x_start, t):
-        """
-        Get the distribution q(x_t | x_0).
-        :param x_start: the [N x C x ...] tensor of noiseless inputs.
-        :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
-        :return: A tuple (mean, variance, log_variance), all of x_start's shape.
-        """
         mean = (extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start)
         variance = extract_into_tensor(1.0 - self.alphas_cumprod, t, x_start.shape)
         log_variance = extract_into_tensor(self.log_one_minus_alphas_cumprod, t, x_start.shape)
@@ -288,8 +265,6 @@ class DDPM(pl.LightningModule):
         )
 
     def predict_start_from_z_and_v(self, x_t, t, v):
-        # self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
-        # self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod)))
         return (
                 extract_into_tensor(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t -
                 extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
@@ -327,7 +302,6 @@ class DDPM(pl.LightningModule):
         b, *_, device = *x.shape, x.device
         model_mean, _, model_log_variance = self.p_mean_variance(x=x, t=t, clip_denoised=clip_denoised)
         noise = noise_like(x.shape, device, repeat_noise)
-        # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
@@ -411,8 +385,6 @@ class DDPM(pl.LightningModule):
         return loss, loss_dict
 
     def forward(self, x, *args, **kwargs):
-        # b, c, h, w, device, img_size, = *x.shape, x.device, self.image_size
-        # assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         return self.p_losses(x, t, *args, **kwargs)
 
@@ -482,7 +454,6 @@ class DDPM(pl.LightningModule):
         x = x.to(self.device)[:N]
         log["inputs"] = x
 
-        # get diffusion row
         diffusion_row = list()
         x_start = x[:n_row]
 
@@ -497,7 +468,6 @@ class DDPM(pl.LightningModule):
         log["diffusion_row"] = self._get_rows_from_list(diffusion_row)
 
         if sample:
-            # get denoise row
             with self.ema_scope("Plotting"):
                 samples, denoise_row = self.sample(batch_size=N, return_intermediates=True)
 
@@ -521,7 +491,6 @@ class DDPM(pl.LightningModule):
 
 
 class LatentDiffusion(DDPM):
-    """main class"""
 
     def __init__(self,
                  first_stage_config,
@@ -540,7 +509,6 @@ class LatentDiffusion(DDPM):
         self.num_timesteps_cond = default(num_timesteps_cond, 1)
         self.scale_by_std = scale_by_std
         assert self.num_timesteps_cond <= kwargs['timesteps']
-        # for backwards compatibility after implementation of DiffusionWrapper
         if conditioning_key is None:
             conditioning_key = 'concat' if concat_mode else 'crossattn'
         if cond_stage_config == '__is_unconditional__' and not self.force_null_conditioning:
@@ -589,10 +557,8 @@ class LatentDiffusion(DDPM):
     @rank_zero_only
     @torch.no_grad()
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        # only for very first batch
         if self.scale_by_std and self.current_epoch == 0 and self.global_step == 0 and batch_idx == 0 and not self.restarted_from_ckpt:
             assert self.scale_factor == 1., 'rather not use custom rescaling and std-rescaling simultaneously'
-            # set rescale weight to 1./std of encodings
             print("### USING STD-RESCALING ###")
             x = super().get_input(batch, self.first_stage_key)
             x = x.to(self.device)
@@ -627,7 +593,6 @@ class LatentDiffusion(DDPM):
             elif config == "__is_unconditional__":
                 print(f"Training {self.__class__.__name__} as an unconditional model.")
                 self.cond_stage_model = None
-                # self.be_unconditional = True
             else:
                 model = instantiate_from_config(config)
                 self.cond_stage_model = model.eval()
@@ -646,7 +611,7 @@ class LatentDiffusion(DDPM):
             denoise_row.append(self.decode_first_stage(zd.to(self.device),
                                                        force_not_quantize=force_no_decoder_quantization))
         n_imgs_per_row = len(denoise_row)
-        denoise_row = torch.stack(denoise_row)  # n_log_step, n_row, C, H, W
+        denoise_row = torch.stack(denoise_row)
         denoise_grid = rearrange(denoise_row, 'n b c h w -> b n c h w')
         denoise_grid = rearrange(denoise_grid, 'b n c h w -> (b n) c h w')
         denoise_grid = make_grid(denoise_grid, nrow=n_imgs_per_row)
@@ -682,12 +647,6 @@ class LatentDiffusion(DDPM):
         return arr
 
     def delta_border(self, h, w):
-        """
-        :param h: height
-        :param w: width
-        :return: normalized distance to image border,
-         wtith min distance = 0 at border and max dist = 0.5 at image center
-        """
         lower_right_corner = torch.tensor([h - 1, w - 1]).view(1, 1, 2)
         arr = self.meshgrid(h, w) / lower_right_corner
         dist_left_up = torch.min(arr, dim=-1, keepdims=True)[0]
@@ -711,14 +670,9 @@ class LatentDiffusion(DDPM):
             weighting = weighting * L_weighting
         return weighting
 
-    def get_fold_unfold(self, x, kernel_size, stride, uf=1, df=1):  # todo load once not every time, shorten code
-        """
-        :param x: img of size (bs, c, h, w)
-        :return: n img crops of size (n, bs, c, kernel_size[0], kernel_size[1])
-        """
+    def get_fold_unfold(self, x, kernel_size, stride, uf=1, df=1):
         bs, nc, h, w = x.shape
 
-        # number of crops in image
         Ly = (h - kernel_size[0]) // stride[0] + 1
         Lx = (w - kernel_size[1]) // stride[1] + 1
 
@@ -729,7 +683,7 @@ class LatentDiffusion(DDPM):
             fold = torch.nn.Fold(output_size=x.shape[2:], **fold_params)
 
             weighting = self.get_weighting(kernel_size[0], kernel_size[1], Ly, Lx, x.device).to(x.dtype)
-            normalization = fold(weighting).view(1, 1, h, w)  # normalizes the overlap
+            normalization = fold(weighting).view(1, 1, h, w)
             weighting = weighting.view((1, 1, kernel_size[0], kernel_size[1], Ly * Lx))
 
         elif uf > 1 and df == 1:
@@ -742,7 +696,7 @@ class LatentDiffusion(DDPM):
             fold = torch.nn.Fold(output_size=(x.shape[2] * uf, x.shape[3] * uf), **fold_params2)
 
             weighting = self.get_weighting(kernel_size[0] * uf, kernel_size[1] * uf, Ly, Lx, x.device).to(x.dtype)
-            normalization = fold(weighting).view(1, 1, h * uf, w * uf)  # normalizes the overlap
+            normalization = fold(weighting).view(1, 1, h * uf, w * uf)
             weighting = weighting.view((1, 1, kernel_size[0] * uf, kernel_size[1] * uf, Ly * Lx))
 
         elif df > 1 and uf == 1:
@@ -755,7 +709,7 @@ class LatentDiffusion(DDPM):
             fold = torch.nn.Fold(output_size=(x.shape[2] // df, x.shape[3] // df), **fold_params2)
 
             weighting = self.get_weighting(kernel_size[0] // df, kernel_size[1] // df, Ly, Lx, x.device).to(x.dtype)
-            normalization = fold(weighting).view(1, 1, h // df, w // df)  # normalizes the overlap
+            normalization = fold(weighting).view(1, 1, h // df, w // df)
             weighting = weighting.view((1, 1, kernel_size[0] // df, kernel_size[1] // df, Ly * Lx))
 
         else:
@@ -842,14 +796,13 @@ class LatentDiffusion(DDPM):
             assert c is not None
             if self.cond_stage_trainable:
                 c = self.get_learned_conditioning(c)
-            if self.shorten_cond_schedule:  # TODO: drop this option
+            if self.shorten_cond_schedule:
                 tc = self.cond_ids[t].to(self.device)
                 c = self.q_sample(x_start=c, t=tc, noise=torch.randn_like(c.float()))
         return self.p_losses(x, c, t, *args, **kwargs)
 
     def apply_model(self, x_noisy, t, cond, return_ids=False):
         if isinstance(cond, dict):
-            # hybrid case, cond is expected to be a dict
             pass
         else:
             if not isinstance(cond, list):
@@ -869,13 +822,6 @@ class LatentDiffusion(DDPM):
                extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
 
     def _prior_bpd(self, x_start):
-        """
-        Get the prior KL term for the variational lower-bound, measured in
-        bits-per-dim.
-        This term can't be optimized, as it only depends on the encoder.
-        :param x_start: the [N x C x ...] tensor of inputs.
-        :return: a batch of [N] KL values (in bits), one per batch element.
-        """
         batch_size = x_start.shape[0]
         t = torch.tensor([self.num_timesteps - 1] * batch_size, device=x_start.device)
         qt_mean, _, qt_log_variance = self.q_mean_variance(x_start, t)
@@ -904,7 +850,6 @@ class LatentDiffusion(DDPM):
 
         logvar_t = self.logvar[t].to(self.device)
         loss = loss_simple / torch.exp(logvar_t) + logvar_t
-        # loss = loss_simple / torch.exp(self.logvar) + self.logvar
         if self.learn_logvar:
             loss_dict.update({f'{prefix}/loss_gamma': loss.mean()})
             loss_dict.update({'logvar': self.logvar.data.mean()})
@@ -971,7 +916,6 @@ class LatentDiffusion(DDPM):
         noise = noise_like(x.shape, device, repeat_noise) * temperature
         if noise_dropout > 0.:
             noise = torch.nn.functional.dropout(noise, p=noise_dropout)
-        # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
 
         if return_codebook_ids:
@@ -1063,7 +1007,7 @@ class LatentDiffusion(DDPM):
 
         if mask is not None:
             assert x0 is not None
-            assert x0.shape[2:3] == mask.shape[2:3]  # spatial size has to match
+            assert x0.shape[2:3] == mask.shape[2:3]
 
         for i in iterator:
             ts = torch.full((b,), i, device=device, dtype=torch.long)
@@ -1138,7 +1082,7 @@ class LatentDiffusion(DDPM):
                 return self.get_learned_conditioning(xc)
             else:
                 raise NotImplementedError("todo")
-        if isinstance(c, list):  # in case the encoder gives us a list
+        if isinstance(c, list):
             for i in range(len(c)):
                 c[i] = repeat(c[i], '1 ... -> b ...', b=batch_size).to(self.device)
         else:
@@ -1176,7 +1120,6 @@ class LatentDiffusion(DDPM):
                     xc = log_txt_as_img((x.shape[2], x.shape[3]), batch["human_label"], size=x.shape[2] // 25)
                     log['conditioning'] = xc
                 except KeyError:
-                    # probably no "human_label" in batch
                     pass
             elif isimage(xc):
                 log["conditioning"] = xc
@@ -1184,7 +1127,6 @@ class LatentDiffusion(DDPM):
                 log["original_conditioning"] = self.to_rgb(xc)
 
         if plot_diffusion_rows:
-            # get diffusion row
             diffusion_row = list()
             z_start = z[:n_row]
             for t in range(self.num_timesteps):
@@ -1195,18 +1137,16 @@ class LatentDiffusion(DDPM):
                     z_noisy = self.q_sample(x_start=z_start, t=t, noise=noise)
                     diffusion_row.append(self.decode_first_stage(z_noisy))
 
-            diffusion_row = torch.stack(diffusion_row)  # n_log_step, n_row, C, H, W
+            diffusion_row = torch.stack(diffusion_row)
             diffusion_grid = rearrange(diffusion_row, 'n b c h w -> b n c h w')
             diffusion_grid = rearrange(diffusion_grid, 'b n c h w -> (b n) c h w')
             diffusion_grid = make_grid(diffusion_grid, nrow=diffusion_row.shape[0])
             log["diffusion_row"] = diffusion_grid
 
         if sample:
-            # get denoise row
             with ema_scope("Sampling"):
                 samples, z_denoise_row = self.sample_log(cond=c, batch_size=N, ddim=use_ddim,
                                                          ddim_steps=ddim_steps, eta=ddim_eta)
-                # samples, z_denoise_row = self.sample(cond=c, batch_size=N, return_intermediates=True)
             x_samples = self.decode_first_stage(samples)
             log["samples"] = x_samples
             if plot_denoise_rows:
@@ -1215,13 +1155,10 @@ class LatentDiffusion(DDPM):
 
             if quantize_denoised and not isinstance(self.first_stage_model, AutoencoderKL) and not isinstance(
                     self.first_stage_model, IdentityFirstStage):
-                # also display when quantizing x0 while sampling
                 with ema_scope("Plotting Quantized Denoised"):
                     samples, z_denoise_row = self.sample_log(cond=c, batch_size=N, ddim=use_ddim,
                                                              ddim_steps=ddim_steps, eta=ddim_eta,
                                                              quantize_denoised=True)
-                    # samples, z_denoise_row = self.sample(cond=c, batch_size=N, return_intermediates=True,
-                    #                                      quantize_denoised=True)
                 x_samples = self.decode_first_stage(samples.to(self.device))
                 log["samples_x0_quantized"] = x_samples
 
@@ -1239,10 +1176,8 @@ class LatentDiffusion(DDPM):
                 log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
 
         if inpaint:
-            # make a simple center square
             b, h, w = z.shape[0], z.shape[2], z.shape[3]
             mask = torch.ones(N, h, w).to(self.device)
-            # zeros will be filled in
             mask[:, h // 4:3 * h // 4, w // 4:3 * w // 4] = 0.
             mask = mask[:, None, ...]
             with ema_scope("Plotting Inpaint"):
@@ -1252,7 +1187,6 @@ class LatentDiffusion(DDPM):
             log["samples_inpainting"] = x_samples
             log["mask"] = mask
 
-            # outpaint
             mask = 1. - mask
             with ema_scope("Plotting Outpaint"):
                 samples, _ = self.sample_log(cond=c, batch_size=N, ddim=use_ddim, eta=ddim_eta,
@@ -1354,7 +1288,6 @@ class DiffusionWrapper(pl.LightningModule):
 class LatentUpscaleDiffusion(LatentDiffusion):
     def __init__(self, *args, low_scale_config, low_scale_key="LR", noise_level_key=None, **kwargs):
         super().__init__(*args, **kwargs)
-        # assumes that neither the cond_stage nor the low_scale_model contain trainable params
         assert not self.cond_stage_trainable
         self.instantiate_low_stage(low_scale_config)
         self.low_scale_key = low_scale_key
@@ -1379,12 +1312,10 @@ class LatentUpscaleDiffusion(LatentDiffusion):
         x_low = x_low.to(memory_format=torch.contiguous_format).float()
         zx, noise_level = self.low_scale_model(x_low)
         if self.noise_level_key is not None:
-            # get noise level from batch instead, e.g. when extracting a custom noise level for bsr
             raise NotImplementedError('TODO')
 
         all_conds = {"c_concat": [zx], "c_crossattn": [c], "c_adm": noise_level}
         if log_mode:
-            # TODO: maybe disable if too expensive
             x_low_rec = self.low_scale_model.decode(zx)
             return z, all_conds, x, xrec, xc, x_low, x_low_rec, noise_level
         return z, all_conds
@@ -1422,7 +1353,6 @@ class LatentUpscaleDiffusion(LatentDiffusion):
                 log["original_conditioning"] = self.to_rgb(xc)
 
         if plot_diffusion_rows:
-            # get diffusion row
             diffusion_row = list()
             z_start = z[:n_row]
             for t in range(self.num_timesteps):
@@ -1433,18 +1363,16 @@ class LatentUpscaleDiffusion(LatentDiffusion):
                     z_noisy = self.q_sample(x_start=z_start, t=t, noise=noise)
                     diffusion_row.append(self.decode_first_stage(z_noisy))
 
-            diffusion_row = torch.stack(diffusion_row)  # n_log_step, n_row, C, H, W
+            diffusion_row = torch.stack(diffusion_row)
             diffusion_grid = rearrange(diffusion_row, 'n b c h w -> b n c h w')
             diffusion_grid = rearrange(diffusion_grid, 'b n c h w -> (b n) c h w')
             diffusion_grid = make_grid(diffusion_grid, nrow=diffusion_row.shape[0])
             log["diffusion_row"] = diffusion_grid
 
         if sample:
-            # get denoise row
             with ema_scope("Sampling"):
                 samples, z_denoise_row = self.sample_log(cond=c, batch_size=N, ddim=use_ddim,
                                                          ddim_steps=ddim_steps, eta=ddim_eta)
-                # samples, z_denoise_row = self.sample(cond=c, batch_size=N, return_intermediates=True)
             x_samples = self.decode_first_stage(samples)
             log["samples"] = x_samples
             if plot_denoise_rows:
@@ -1453,16 +1381,13 @@ class LatentUpscaleDiffusion(LatentDiffusion):
 
         if unconditional_guidance_scale > 1.0:
             uc_tmp = self.get_unconditional_conditioning(N, unconditional_guidance_label)
-            # TODO explore better "unconditional" choices for the other keys
-            # maybe guide away from empty text label and highest noise level and maximally degraded zx?
             uc = dict()
             for k in c:
                 if k == "c_crossattn":
                     assert isinstance(c[k], list) and len(c[k]) == 1
                     uc[k] = [uc_tmp]
-                elif k == "c_adm":  # todo: only run with text-based guidance?
+                elif k == "c_adm":
                     assert isinstance(c[k], torch.Tensor)
-                    #uc[k] = torch.ones_like(c[k]) * self.low_scale_model.max_noise_level
                     uc[k] = c[k]
                 elif isinstance(c[k], list):
                     uc[k] = [c[k][i] for i in range(len(c[k]))]
@@ -1490,10 +1415,6 @@ class LatentUpscaleDiffusion(LatentDiffusion):
 
 
 class LatentFinetuneDiffusion(LatentDiffusion):
-    """
-         Basis for different finetunas, such as inpainting or depth2image
-         To disable finetuning mode, set finetune_keys to None
-    """
 
     def __init__(self,
                  concat_keys: tuple,
@@ -1501,8 +1422,7 @@ class LatentFinetuneDiffusion(LatentDiffusion):
                                 "model_ema.diffusion_modelinput_blocks00weight"
                                 ),
                  keep_finetune_dims=4,
-                 # if model was trained without concat mode before and we would like to keep these channels
-                 c_concat_log_start=None,  # to log reconstruction of c_concat codes
+                 c_concat_log_start=None,
                  c_concat_log_end=None,
                  *args, **kwargs
                  ):
@@ -1529,14 +1449,13 @@ class LatentFinetuneDiffusion(LatentDiffusion):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
 
-            # make it explicit, finetune by including extra input channels
             if exists(self.finetune_keys) and k in self.finetune_keys:
                 new_entry = None
                 for name, param in self.named_parameters():
                     if name in self.finetune_keys:
                         print(
                             f"modifying key '{name}' and keeping its original {self.keep_dims} (channels) dimensions only")
-                        new_entry = torch.zeros_like(param)  # zero init
+                        new_entry = torch.zeros_like(param)
                 assert exists(new_entry), 'did not find matching parameter to modify'
                 new_entry[:, :self.keep_dims, ...] = sd[k]
                 sd[k] = new_entry
@@ -1584,7 +1503,6 @@ class LatentFinetuneDiffusion(LatentDiffusion):
             log["c_concat_decoded"] = self.decode_first_stage(c_cat[:, self.c_concat_log_start:self.c_concat_log_end])
 
         if plot_diffusion_rows:
-            # get diffusion row
             diffusion_row = list()
             z_start = z[:n_row]
             for t in range(self.num_timesteps):
@@ -1595,19 +1513,17 @@ class LatentFinetuneDiffusion(LatentDiffusion):
                     z_noisy = self.q_sample(x_start=z_start, t=t, noise=noise)
                     diffusion_row.append(self.decode_first_stage(z_noisy))
 
-            diffusion_row = torch.stack(diffusion_row)  # n_log_step, n_row, C, H, W
+            diffusion_row = torch.stack(diffusion_row)
             diffusion_grid = rearrange(diffusion_row, 'n b c h w -> b n c h w')
             diffusion_grid = rearrange(diffusion_grid, 'b n c h w -> (b n) c h w')
             diffusion_grid = make_grid(diffusion_grid, nrow=diffusion_row.shape[0])
             log["diffusion_row"] = diffusion_grid
 
         if sample:
-            # get denoise row
             with ema_scope("Sampling"):
                 samples, z_denoise_row = self.sample_log(cond={"c_concat": [c_cat], "c_crossattn": [c]},
                                                          batch_size=N, ddim=use_ddim,
                                                          ddim_steps=ddim_steps, eta=ddim_eta)
-                # samples, z_denoise_row = self.sample(cond=c, batch_size=N, return_intermediates=True)
             x_samples = self.decode_first_stage(samples)
             log["samples"] = x_samples
             if plot_denoise_rows:
@@ -1632,11 +1548,6 @@ class LatentFinetuneDiffusion(LatentDiffusion):
 
 
 class LatentInpaintDiffusion(LatentFinetuneDiffusion):
-    """
-    can either run as pure inpainting model (only concat mode) or with mixed conditionings,
-    e.g. mask as concat and text via cross-attn.
-    To disable finetuning mode, set finetune_keys to None
-     """
 
     def __init__(self,
                  concat_keys=("mask", "masked_image"),
@@ -1649,7 +1560,6 @@ class LatentInpaintDiffusion(LatentFinetuneDiffusion):
 
     @torch.no_grad()
     def get_input(self, batch, k, cond_key=None, bs=None, return_first_stage_outputs=False):
-        # note: restricted to non-trainable encoders currently
         assert not self.cond_stage_trainable, 'trainable cond stages not yet supported for inpainting'
         z, c, x, xrec, xc = super().get_input(batch, self.first_stage_key, return_first_stage_outputs=True,
                                               force_c_encode=True, return_original_cond=True, bs=bs)
@@ -1682,9 +1592,6 @@ class LatentInpaintDiffusion(LatentFinetuneDiffusion):
 
 
 class LatentDepth2ImageDiffusion(LatentFinetuneDiffusion):
-    """
-    condition on monocular depth estimation
-    """
 
     def __init__(self, depth_stage_config, concat_keys=("midas_in",), *args, **kwargs):
         super().__init__(concat_keys=concat_keys, *args, **kwargs)
@@ -1693,7 +1600,6 @@ class LatentDepth2ImageDiffusion(LatentFinetuneDiffusion):
 
     @torch.no_grad()
     def get_input(self, batch, k, cond_key=None, bs=None, return_first_stage_outputs=False):
-        # note: restricted to non-trainable encoders currently
         assert not self.cond_stage_trainable, 'trainable cond stages not yet supported for depth2img'
         z, c, x, xrec, xc = super().get_input(batch, self.first_stage_key, return_first_stage_outputs=True,
                                               force_c_encode=True, return_original_cond=True, bs=bs)
@@ -1735,9 +1641,6 @@ class LatentDepth2ImageDiffusion(LatentFinetuneDiffusion):
 
 
 class LatentUpscaleFinetuneDiffusion(LatentFinetuneDiffusion):
-    """
-        condition on low-res image (and optionally on some spatial noise augmentation)
-    """
     def __init__(self, concat_keys=("lr",), reshuffle_patch_size=None,
                  low_scale_config=None, low_scale_key=None, *args, **kwargs):
         super().__init__(concat_keys=concat_keys, *args, **kwargs)
@@ -1758,14 +1661,12 @@ class LatentUpscaleFinetuneDiffusion(LatentFinetuneDiffusion):
 
     @torch.no_grad()
     def get_input(self, batch, k, cond_key=None, bs=None, return_first_stage_outputs=False):
-        # note: restricted to non-trainable encoders currently
         assert not self.cond_stage_trainable, 'trainable cond stages not yet supported for upscaling-ft'
         z, c, x, xrec, xc = super().get_input(batch, self.first_stage_key, return_first_stage_outputs=True,
                                               force_c_encode=True, return_original_cond=True, bs=bs)
 
         assert exists(self.concat_keys)
         assert len(self.concat_keys) == 1
-        # optionally make spatial noise_level here
         c_cat = list()
         noise_level = None
         for ck in self.concat_keys:

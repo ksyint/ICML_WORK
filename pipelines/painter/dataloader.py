@@ -23,7 +23,6 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 import sys
 
-# Dataset.py가 있는 디렉토리 경로를 sys.path에 추가
 sys.path.append('/mnt/c/Users/hb/Desktop/code/DS/DiffSketcher/pipelines/painter')
 
 
@@ -31,26 +30,23 @@ class ChexpertTrainDataset(Dataset):
 
     def __init__(self,transform = None, indices = None):
         
-        csv_path = "C:/Users/hb/Desktop/Data/CheXpert-v1.0-small/labels(former)/selected_train.csv" ####
-        self.dir = "C:/Users/hb/Desktop/Data/" ####
+        csv_path = "C:/Users/hb/Desktop/Data/CheXpert-v1.0-small/labels(former)/selected_train.csv"
+        self.dir = "C:/Users/hb/Desktop/Data/"
         self.transform = transform
 
         self.all_data = pd.read_csv(csv_path)
-        # self.selecte_data = self.all_data.iloc[indices, :]
         self.selecte_data = self.all_data
         self.class_num = 10
         self.all_classes = ['Enlarged Cardiomediastinum', 'Cardiomegaly', 'Lung Opacity', 'Lung Lesion', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Fracture']
         
         self.total_ds_cnt = self.get_total_cnt()
         self.total_ds_cnt = np.array(self.total_ds_cnt)
-        # Normalize the imbalance
         self.imbalance = 0
         difference_cnt = self.total_ds_cnt - self.total_ds_cnt.mean()
         for i in range(len(difference_cnt)):
             difference_cnt[i] = difference_cnt[i] * difference_cnt[i]        
         for i in range(len(difference_cnt)):
             difference_cnt[i] = difference_cnt[i] / difference_cnt.sum()
-        # Calculate the level of imbalnce
         difference_cnt -= difference_cnt.mean()
         for i in range(len(difference_cnt)):
             difference_cnt[i] = (difference_cnt[i] * difference_cnt[i])
@@ -60,9 +56,7 @@ class ChexpertTrainDataset(Dataset):
     def __getitem__(self, index):
 
         row = self.selecte_data.iloc[index, :]
-        # img = cv2.imread(self.dir + row['Path'])
         img = pilimg.open(self.dir + row['Path'])
-        # label = torch.FloatTensor(row[5:])
         label = torch.FloatTensor(row[2:])
         gray_img = self.transform(img)
         return torch.cat([gray_img,gray_img,gray_img], dim = 0), label

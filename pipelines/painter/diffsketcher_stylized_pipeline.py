@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) XiMing Xing. All rights reserved.
-# Author: XiMing Xing
-# Description:
 import shutil
 import pathlib
 from PIL import Image
@@ -48,7 +44,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                   f"{attn_log_}"
         super().__init__(args, log_path_suffix=logdir_)
 
-        # create log dir
         self.png_logs_dir = self.results_path / "png_logs"
         self.svg_logs_dir = self.results_path / "svg_logs"
         self.attn_logs_dir = self.results_path / "attn_logs"
@@ -57,7 +52,6 @@ class StylizedDiffSketcherPipeline(ModelState):
             self.svg_logs_dir.mkdir(parents=True, exist_ok=True)
             self.attn_logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # make video log
         self.make_video = self.args.make_video
         if self.make_video:
             self.frame_idx = 0
@@ -67,17 +61,13 @@ class StylizedDiffSketcherPipeline(ModelState):
         init_diffvg(self.device, True, args.print_timing)
 
         if args.model_id == "sdxl":
-            # default LSDSSDXLPipeline scheduler is EulerDiscreteScheduler
-            # when LSDSSDXLPipeline calls, scheduler.timesteps will change in step 4
-            # which causes problem in sds add_noise() function
-            # because the random t may not in scheduler.timesteps
             custom_pipeline = Token2AttnMixinASDSSDXLPipeline
             custom_scheduler = diffusers.DPMSolverMultistepScheduler
             self.args.cross_attn_res = self.args.cross_attn_res * 2
         elif args.model_id == 'sd21':
             custom_pipeline = Token2AttnMixinASDSPipeline
             custom_scheduler = diffusers.DDIMScheduler
-        else:  # sd14, sd15
+        else:
             custom_pipeline = Token2AttnMixinASDSPipeline
             custom_scheduler = diffusers.DDIMScheduler
 
@@ -96,7 +86,6 @@ class StylizedDiffSketcherPipeline(ModelState):
 
         self.g_device = torch.Generator(device=self.device).manual_seed(args.seed)
 
-        # init clip model and clip score wrapper
         self.cargs = self.args.clip
         self.clip_score_fn = CLIPScoreWrapper(self.cargs.model_name,
                                               device=self.device,
@@ -105,16 +94,13 @@ class StylizedDiffSketcherPipeline(ModelState):
                                               feats_loss_weights=self.cargs.feats_loss_weights,
                                               fc_loss_weight=self.cargs.fc_loss_weight)
 
-        # load STROTSS
         self.style_extractor = VGG16Extractor(space="normal").to(self.device)
         self.style_loss = StyleLoss()
 
     def extract_ldm_attn(self, prompts):
-        # log prompts
         self.print(f"prompt: {prompts}")
         self.print(f"negative_prompt: {self.args.negative_prompt}\n")
 
-        # init controller
         controller = AttentionStore() if self.args.attention_init else EmptyControl()
 
         height = width = model2res(self.args.model_id)
@@ -131,7 +117,6 @@ class StylizedDiffSketcherPipeline(ModelState):
         view_images([np.array(img) for img in outputs.images], save_image=True, fp=target_file)
 
         if self.args.attention_init:
-            """ldm cross-attention map"""
             cross_attention_maps, tokens = \
                 self.diffusion.get_cross_attention([prompts],
                                                    controller,
@@ -140,28 +125,19 @@ class StylizedDiffSketcherPipeline(ModelState):
                                                    save_path=self.results_path / "cross_attn.png")
 
             self.print(f"the length of tokens is {len(tokens)}, select {self.args.token_ind}-th token")
-            # [res, res, seq_len]
             self.print(f"origin cross_attn_map shape: {cross_attention_maps.shape}")
-            # [res, res]
             cross_attn_map = cross_attention_maps[:, :, self.args.token_ind]
             self.print(f"select cross_attn_map shape: {cross_attn_map.shape}\n")
             cross_attn_map = 255 * cross_attn_map / cross_attn_map.max()
-            # [res, res, 3]
             cross_attn_map = cross_attn_map.unsqueeze(-1).expand(*cross_attn_map.shape, 3)
-            # [3, res, res]
             cross_attn_map = cross_attn_map.permute(2, 0, 1).unsqueeze(0)
-            # [3, clip_size, clip_size]
             cross_attn_map = F.interpolate(cross_attn_map, size=self.args.image_size, mode='bicubic')
             cross_attn_map = torch.clamp(cross_attn_map, min=0, max=255)
-            # rgb to gray
             cross_attn_map = rgb2gray(cross_attn_map.squeeze(0).permute(1, 2, 0)).astype(np.float32)
-            # torch to numpy
             if cross_attn_map.shape[-1] != self.args.image_size and cross_attn_map.shape[-2] != self.args.image_size:
                 cross_attn_map = cross_attn_map.reshape(self.args.image_size, self.args.image_size)
-            # to [0, 1]
             cross_attn_map = (cross_attn_map - cross_attn_map.min()) / (cross_attn_map.max() - cross_attn_map.min())
 
-            """ldm self-attention map"""
             self_attention_maps, svd, vh_ = \
                 self.diffusion.get_self_attention_comp([prompts],
                                                        controller,
@@ -171,16 +147,13 @@ class StylizedDiffSketcherPipeline(ModelState):
                                                        max_com=self.args.max_com,
                                                        save_path=self.results_path)
 
-            # comp self-attention map
             if self.args.mean_comp:
                 self_attn = np.mean(vh_, axis=0)
                 self.print(f"use the mean of {self.args.max_com} comps.")
             else:
                 self_attn = vh_[self.args.comp_idx]
                 self.print(f"select {self.args.comp_idx}-th comp.")
-            # to [0, 1]
             self_attn = (self_attn - self_attn.min()) / (self_attn.max() - self_attn.min())
-            # visual final self-attention
             self_attn_vis = np.copy(self_attn)
             self_attn_vis = self_attn_vis * 255
             self_attn_vis = np.repeat(np.expand_dims(self_attn_vis, axis=2), 3, axis=2).astype(np.uint8)
@@ -188,9 +161,7 @@ class StylizedDiffSketcherPipeline(ModelState):
             self_attn_vis = np.array(self_attn_vis)
             view_images(self_attn_vis, save_image=True, fp=self.results_path / "self-attn-final.png")
 
-            """attention map fusion"""
             attn_map = self.args.attn_coeff * cross_attn_map + (1 - self.args.attn_coeff) * self_attn
-            # to [0, 1]
             attn_map = (attn_map - attn_map.min()) / (attn_map.max() - attn_map.min())
 
             self.print(f"-> fusion attn_map: {attn_map.shape}")
@@ -209,7 +180,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                           im_res: int,
                           augments: str = "affine_norm",
                           num_aug: int = 4):
-        # init augmentations
         augment_list = []
         if "affine" in augments:
             augment_list.append(
@@ -218,13 +188,10 @@ class StylizedDiffSketcherPipeline(ModelState):
             augment_list.append(
                 transforms.RandomResizedCrop(im_res, scale=(0.8, 0.8), ratio=(1.0, 1.0))
             )
-        augment_list.append(self.clip_norm_)  # CLIP Normalize
+        augment_list.append(self.clip_norm_)
 
-        # compose augmentations
         augment_compose = transforms.Compose(augment_list)
-        # make augmentation pairs
         x_augs, y_augs = [self.clip_score_fn.normalize(x)], [self.clip_score_fn.normalize(y)]
-        # repeat N times
         for n in range(num_aug):
             augmented_pair = augment_compose(torch.cat([x, y]))
             x_augs.append(augmented_pair[0].unsqueeze(0))
@@ -234,7 +201,6 @@ class StylizedDiffSketcherPipeline(ModelState):
         return xs, ys
 
     def painterly_rendering(self, prompt: str, style_fpath: str):
-        # init attention
         target_file, attention_map = self.extract_ldm_attn(prompt)
 
         perceptual_loss_fn = None
@@ -255,10 +221,9 @@ class StylizedDiffSketcherPipeline(ModelState):
                                        self.args.mask_object,
                                        self.args.fix_scale,
                                        self.device)
-        inputs = inputs.detach()  # inputs as GT
+        inputs = inputs.detach()
         self.print("inputs shape: ", inputs.shape)
 
-        # load renderer
         renderer = Painter(self.args,
                            num_strokes=self.args.num_paths,
                            num_segments=self.args.num_segments,
@@ -267,11 +232,9 @@ class StylizedDiffSketcherPipeline(ModelState):
                            target_im=inputs,
                            attention_map=attention_map,
                            mask=mask)
-        # init img
         img = renderer.init_image(stage=0)
         self.print("init_image shape: ", img.shape)
         log_tensor_img(img, self.results_path, output_prefix="init_sketch")
-        # load optimizer
         optimizer = SketchPainterOptimizer(renderer,
                                            self.args.lr,
                                            self.args.optim_opacity,
@@ -281,7 +244,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                                            self.args.width_lr)
         optimizer.init_optimizers()
 
-        # log params
         self.print(f"-> Painter points Params: {len(renderer.get_points_params())}")
         self.print(f"-> Painter width Params: {len(renderer.get_width_parameters())}")
         self.print(f"-> Painter color Params: {len(renderer.get_color_parameters())}")
@@ -295,13 +257,11 @@ class StylizedDiffSketcherPipeline(ModelState):
             while self.step < self.args.num_iter:
                 raster_sketch = renderer.get_image().to(self.device)
 
-                # log video
                 if self.make_video and (
                         self.step % self.args.video_frame_freq == 0 or self.step == self.args.num_iter - 1):
                     log_tensor_img(raster_sketch, self.frame_log_dir, output_prefix=f"iter{self.frame_idx}")
                     self.frame_idx += 1
 
-                # ASDS loss
                 sds_loss, grad = torch.tensor(0), torch.tensor(0)
                 if self.step >= self.args.sds.warmup:
                     grad_scale = self.args.sds.grad_scale if self.step > self.args.sds.warmup else 0
@@ -316,7 +276,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                         t_range=list(self.args.sds.t_range),
                     )
 
-                # CLIP data augmentation
                 raster_sketch_aug, inputs_aug = self.clip_pair_augment(
                     raster_sketch, inputs,
                     im_res=224,
@@ -324,7 +283,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                     num_aug=self.cargs.num_aug
                 )
 
-                # clip visual loss
                 total_visual_loss = torch.tensor(0)
                 l_clip_fc, l_clip_conv, clip_conv_loss_sum = torch.tensor(0), [], torch.tensor(0)
                 if self.args.clip.vis_loss > 0:
@@ -334,20 +292,17 @@ class StylizedDiffSketcherPipeline(ModelState):
                     clip_conv_loss_sum = sum(l_clip_conv)
                     total_visual_loss = self.args.clip.vis_loss * (clip_conv_loss_sum + l_clip_fc)
 
-                # text-visual loss
                 l_tvd = torch.tensor(0.)
                 if self.cargs.text_visual_coeff > 0:
                     l_tvd = self.clip_score_fn.compute_text_visual_distance(
                         raster_sketch_aug, self.args.prompt
                     ) * self.cargs.text_visual_coeff
 
-                # perceptual loss
                 l_percep = torch.tensor(0.)
                 if perceptual_loss_fn is not None:
                     l_perceptual = perceptual_loss_fn(raster_sketch, inputs).mean()
                     l_percep = l_perceptual * self.args.perceptual.coeff
 
-                # style loss
                 l_style = torch.tensor(0.)
                 if self.step >= self.args.style_warmup:
                     feat_content = self.style_extractor(raster_sketch)
@@ -358,19 +313,15 @@ class StylizedDiffSketcherPipeline(ModelState):
                         feat_content, feat_content, feat_style, [xx, xy], 0
                     )
 
-                # total loss
                 loss = sds_loss + total_visual_loss + l_tvd + l_percep + l_style
 
-                # optimization
                 optimizer.zero_grad_()
                 loss.backward()
                 optimizer.step_()
 
-                # update lr
                 if self.args.lr_scheduler:
                     optimizer.update_lr(self.step, self.args.decay_steps)
 
-                # records
                 pbar.set_description(
                     f"lr: {optimizer.get_lr():.2f}, "
                     f"l_total: {loss.item():.4f}, "
@@ -382,9 +333,7 @@ class StylizedDiffSketcherPipeline(ModelState):
                     f"sds: {grad.item():.4e}"
                 )
 
-                # log raster and svg
                 if self.step % self.args.save_step == 0 and self.accelerator.is_main_process:
-                    # log png
                     plt_triplet(inputs,
                                 raster_sketch,
                                 style_img,
@@ -392,9 +341,7 @@ class StylizedDiffSketcherPipeline(ModelState):
                                 prompt,
                                 save_path=self.png_logs_dir.as_posix(),
                                 name=f"iter{self.step}")
-                    # log svg
                     renderer.save_svg(self.svg_logs_dir.as_posix(), f"svg_iter{self.step}")
-                    # log cross attn
                     if self.args.log_cross_attn:
                         controller = AttentionStore()
                         _, _ = self.diffusion.get_cross_attention([self.args.prompt],
@@ -403,10 +350,8 @@ class StylizedDiffSketcherPipeline(ModelState):
                                                                   from_where=("up", "down"),
                                                                   save_path=self.attn_logs_dir / f"iter{self.step}.png")
 
-                # log the best raster images and SVG
                 if self.step % self.args.eval_step == 0 and self.accelerator.is_main_process:
                     with torch.no_grad():
-                        # visual metric
                         l_clip_fc, l_clip_conv = self.clip_score_fn.compute_visual_distance(
                             raster_sketch_aug, inputs_aug, clip_norm=False
                         )
@@ -425,7 +370,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                                         name="visual_best")
                             renderer.save_svg(self.results_path.as_posix(), "visual_best")
 
-                        # semantic metric
                         loss_eval = self.clip_score_fn.compute_text_visual_distance(
                             raster_sketch_aug, self.args.prompt
                         )
@@ -442,7 +386,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                                         name="semantic_best")
                             renderer.save_svg(self.results_path.as_posix(), "semantic_best")
 
-                # log attention, for once
                 if self.step == 0 and self.args.attention_init and self.accelerator.is_main_process:
                     plt_attn(renderer.get_attn(),
                              renderer.get_thresh(),
@@ -453,7 +396,6 @@ class StylizedDiffSketcherPipeline(ModelState):
                 self.step += 1
                 pbar.update(1)
 
-        # saving final result
         renderer.save_svg(self.results_path.as_posix(), f"final_best_step")
 
         final_raster_sketch = renderer.get_image().to(self.device)
@@ -461,9 +403,7 @@ class StylizedDiffSketcherPipeline(ModelState):
                         save_path=self.results_path,
                         name=f"final_best_step")
 
-        # convert the intermediate renderings to a video
         if self.args.make_video:
-            # ffmpeg -framerate 36 -i ./workdir/style_transfer/diffsketcher-style/sd876809-im224-ST1-P2000W1.5OP-tk4-atc1.0-tau0.4/frame_logs/iter%d.png -vb 20M out.mp4
             from subprocess import call
             call([
                 "ffmpeg",
@@ -476,18 +416,15 @@ class StylizedDiffSketcherPipeline(ModelState):
         self.close(msg="painterly rendering complete.")
 
     def load_and_process_style_file(self, style_fpath):
-        # load style file
         style_path = Path(style_fpath)
         assert style_path.exists(), f"{style_fpath} is not exist!"
         style_img = self.style_file_preprocess(style_path.as_posix())
         self.print(f"load style file from: {style_path.as_posix()}")
-        shutil.copy(style_fpath, self.results_path)  # copy style file
+        shutil.copy(style_fpath, self.results_path)
 
-        # extract style features from style image
         feat_style = None
         for i in range(5):
             with torch.no_grad():
-                # r is region of interest (mask)
                 feat_e = self.style_extractor.forward_samples_hypercolumn(style_img, samps=1000)
                 feat_style = feat_e if feat_style is None else torch.cat((feat_style, feat_e), dim=2)
 
@@ -497,13 +434,11 @@ class StylizedDiffSketcherPipeline(ModelState):
         process_comp = transforms.Compose([
             transforms.Resize(size=(224, 224)),
             transforms.ToTensor(),
-            # transforms.Lambda(lambda t: t - 0.5),
             transforms.Lambda(lambda t: t.unsqueeze(0)),
-            # transforms.Lambda(lambda t: (t + 1) / 2),
         ])
 
-        style_pil = Image.open(style_path).convert("RGB")  # open file
-        style_file = process_comp(style_pil)  # preprocess
+        style_pil = Image.open(style_path).convert("RGB")
+        style_file = process_comp(style_pil)
         style_file = style_file.to(self.device)
         return style_file
 
@@ -521,14 +456,11 @@ class StylizedDiffSketcherPipeline(ModelState):
         target = Image.open(target_file)
 
         if target.mode == "RGBA":
-            # Create a white rgba background
             new_image = Image.new("RGBA", target.size, "WHITE")
-            # Paste the image on the background.
             new_image.paste(target, (0, 0), target)
             target = new_image
         target = target.convert("RGB")
 
-        # U2Net mask
         mask = target
         if mask_object:
             if pathlib.Path(u2net_path).exists():
@@ -543,7 +475,6 @@ class StylizedDiffSketcherPipeline(ModelState):
         if fix_scale:
             target = fix_image_scale(target)
 
-        # define image transforms
         transforms_ = []
         if target.size[0] != target.size[1]:
             transforms_.append(transforms.Resize((image_size, image_size)))
@@ -552,7 +483,6 @@ class StylizedDiffSketcherPipeline(ModelState):
             transforms_.append(transforms.CenterCrop(image_size))
         transforms_.append(transforms.ToTensor())
 
-        # preprocess
         data_transforms = transforms.Compose(transforms_)
         target_ = data_transforms(target).unsqueeze(0).to(self.device)
 

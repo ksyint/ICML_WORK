@@ -1,4 +1,3 @@
-# pytorch_diffusion + derived encoder decoder
 import math
 import torch
 import torch.nn as nn
@@ -18,13 +17,6 @@ except:
 
 
 def get_timestep_embedding(timesteps, embedding_dim):
-    """
-    This matches the implementation in Denoising Diffusion Probabilistic Models:
-    From Fairseq.
-    Build sinusoidal embeddings.
-    This matches the implementation in tensor2tensor, but differs slightly
-    from the description in Section 3.5 of "Attention Is All You Need".
-    """
     assert len(timesteps.shape) == 1
 
     half_dim = embedding_dim // 2
@@ -33,13 +25,12 @@ def get_timestep_embedding(timesteps, embedding_dim):
     emb = emb.to(device=timesteps.device)
     emb = timesteps.float()[:, None] * emb[None, :]
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
-    if embedding_dim % 2 == 1:  # zero pad
+    if embedding_dim % 2 == 1:
         emb = torch.nn.functional.pad(emb, (0,1,0,0))
     return emb
 
 
 def nonlinearity(x):
-    # swish
     return x*torch.sigmoid(x)
 
 
@@ -70,7 +61,6 @@ class Downsample(nn.Module):
         super().__init__()
         self.with_conv = with_conv
         if self.with_conv:
-            # no asymmetric padding in torch conv, must do it ourselves
             self.conv = torch.nn.Conv2d(in_channels,
                                         in_channels,
                                         kernel_size=3,
@@ -183,19 +173,17 @@ class AttnBlock(nn.Module):
         k = self.k(h_)
         v = self.v(h_)
 
-        # compute attention
         b,c,h,w = q.shape
         q = q.reshape(b,c,h*w)
-        q = q.permute(0,2,1)   # b,hw,c
-        k = k.reshape(b,c,h*w) # b,c,hw
-        w_ = torch.bmm(q,k)     # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
+        q = q.permute(0,2,1)
+        k = k.reshape(b,c,h*w)
+        w_ = torch.bmm(q,k)
         w_ = w_ * (int(c)**(-0.5))
         w_ = torch.nn.functional.softmax(w_, dim=2)
 
-        # attend to values
         v = v.reshape(b,c,h*w)
-        w_ = w_.permute(0,2,1)   # b,hw,hw (first hw of k, second of q)
-        h_ = torch.bmm(v,w_)     # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
+        w_ = w_.permute(0,2,1)
+        h_ = torch.bmm(v,w_)
         h_ = h_.reshape(b,c,h,w)
 
         h_ = self.proj_out(h_)
@@ -203,12 +191,6 @@ class AttnBlock(nn.Module):
         return x+h_
 
 class MemoryEfficientAttnBlock(nn.Module):
-    """
-        Uses xformers efficient implementation,
-        see https://github.com/MatthieuTPHR/diffusers/blob/d80b531ff8060ec1ea982b65a1b8df70f73aa67c/src/diffusers/models/attention.py#L223
-        Note: this is a single-head self-attention operation
-    """
-    #
     def __init__(self, in_channels):
         super().__init__()
         self.in_channels = in_channels
@@ -243,7 +225,6 @@ class MemoryEfficientAttnBlock(nn.Module):
         k = self.k(h_)
         v = self.v(h_)
 
-        # compute attention
         B, C, H, W = q.shape
         q, k, v = map(lambda x: rearrange(x, 'b c h w -> b (h w) c'), (q, k, v))
 
@@ -312,7 +293,6 @@ class Model(nn.Module):
 
         self.use_timestep = use_timestep
         if self.use_timestep:
-            # timestep embedding
             self.temb = nn.Module()
             self.temb.dense = nn.ModuleList([
                 torch.nn.Linear(self.ch,
@@ -321,7 +301,6 @@ class Model(nn.Module):
                                 self.temb_ch),
             ])
 
-        # downsampling
         self.conv_in = torch.nn.Conv2d(in_channels,
                                        self.ch,
                                        kernel_size=3,
@@ -352,7 +331,6 @@ class Model(nn.Module):
                 curr_res = curr_res // 2
             self.down.append(down)
 
-        # middle
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
@@ -364,7 +342,6 @@ class Model(nn.Module):
                                        temb_channels=self.temb_ch,
                                        dropout=dropout)
 
-        # upsampling
         self.up = nn.ModuleList()
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
@@ -387,9 +364,8 @@ class Model(nn.Module):
             if i_level != 0:
                 up.upsample = Upsample(block_in, resamp_with_conv)
                 curr_res = curr_res * 2
-            self.up.insert(0, up) # prepend to get consistent order
+            self.up.insert(0, up)
 
-        # end
         self.norm_out = Normalize(block_in)
         self.conv_out = torch.nn.Conv2d(block_in,
                                         out_ch,
@@ -398,12 +374,9 @@ class Model(nn.Module):
                                         padding=1)
 
     def forward(self, x, t=None, context=None):
-        #assert x.shape[2] == x.shape[3] == self.resolution
         if context is not None:
-            # assume aligned context, cat along channel axis
             x = torch.cat((x, context), dim=1)
         if self.use_timestep:
-            # timestep embedding
             assert t is not None
             temb = get_timestep_embedding(t, self.ch)
             temb = self.temb.dense[0](temb)
@@ -412,7 +385,6 @@ class Model(nn.Module):
         else:
             temb = None
 
-        # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -423,13 +395,11 @@ class Model(nn.Module):
             if i_level != self.num_resolutions-1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
-        # middle
         h = hs[-1]
         h = self.mid.block_1(h, temb)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h, temb)
 
-        # upsampling
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks+1):
                 h = self.up[i_level].block[i_block](
@@ -439,7 +409,6 @@ class Model(nn.Module):
             if i_level != 0:
                 h = self.up[i_level].upsample(h)
 
-        # end
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
@@ -463,7 +432,6 @@ class Encoder(nn.Module):
         self.resolution = resolution
         self.in_channels = in_channels
 
-        # downsampling
         self.conv_in = torch.nn.Conv2d(in_channels,
                                        self.ch,
                                        kernel_size=3,
@@ -495,7 +463,6 @@ class Encoder(nn.Module):
                 curr_res = curr_res // 2
             self.down.append(down)
 
-        # middle
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
@@ -507,7 +474,6 @@ class Encoder(nn.Module):
                                        temb_channels=self.temb_ch,
                                        dropout=dropout)
 
-        # end
         self.norm_out = Normalize(block_in)
         self.conv_out = torch.nn.Conv2d(block_in,
                                         2*z_channels if double_z else z_channels,
@@ -516,10 +482,8 @@ class Encoder(nn.Module):
                                         padding=1)
 
     def forward(self, x):
-        # timestep embedding
         temb = None
 
-        # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -530,13 +494,11 @@ class Encoder(nn.Module):
             if i_level != self.num_resolutions-1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
-        # middle
         h = hs[-1]
         h = self.mid.block_1(h, temb)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h, temb)
 
-        # end
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
@@ -559,7 +521,6 @@ class Decoder(nn.Module):
         self.give_pre_end = give_pre_end
         self.tanh_out = tanh_out
 
-        # compute in_ch_mult, block_in and curr_res at lowest res
         in_ch_mult = (1,)+tuple(ch_mult)
         block_in = ch*ch_mult[self.num_resolutions-1]
         curr_res = resolution // 2**(self.num_resolutions-1)
@@ -567,14 +528,12 @@ class Decoder(nn.Module):
         print("Working with z of shape {} = {} dimensions.".format(
             self.z_shape, np.prod(self.z_shape)))
 
-        # z to block_in
         self.conv_in = torch.nn.Conv2d(z_channels,
                                        block_in,
                                        kernel_size=3,
                                        stride=1,
                                        padding=1)
 
-        # middle
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
@@ -586,7 +545,6 @@ class Decoder(nn.Module):
                                        temb_channels=self.temb_ch,
                                        dropout=dropout)
 
-        # upsampling
         self.up = nn.ModuleList()
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
@@ -606,9 +564,8 @@ class Decoder(nn.Module):
             if i_level != 0:
                 up.upsample = Upsample(block_in, resamp_with_conv)
                 curr_res = curr_res * 2
-            self.up.insert(0, up) # prepend to get consistent order
+            self.up.insert(0, up)
 
-        # end
         self.norm_out = Normalize(block_in)
         self.conv_out = torch.nn.Conv2d(block_in,
                                         out_ch,
@@ -617,21 +574,16 @@ class Decoder(nn.Module):
                                         padding=1)
 
     def forward(self, z):
-        #assert z.shape[1:] == self.z_shape[1:]
         self.last_z_shape = z.shape
 
-        # timestep embedding
         temb = None
 
-        # z to block_in
         h = self.conv_in(z)
 
-        # middle
         h = self.mid.block_1(h, temb)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h, temb)
 
-        # upsampling
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks+1):
                 h = self.up[i_level].block[i_block](h, temb)
@@ -640,7 +592,6 @@ class Decoder(nn.Module):
             if i_level != 0:
                 h = self.up[i_level].upsample(h)
 
-        # end
         if self.give_pre_end:
             return h
 
@@ -667,7 +618,6 @@ class SimpleDecoder(nn.Module):
                                                 temb_channels=0, dropout=0.0),
                                      nn.Conv2d(2*in_channels, in_channels, 1),
                                      Upsample(in_channels, with_conv=True)])
-        # end
         self.norm_out = Normalize(in_channels)
         self.conv_out = torch.nn.Conv2d(in_channels,
                                         out_channels,
@@ -692,7 +642,6 @@ class UpsampleDecoder(nn.Module):
     def __init__(self, in_channels, out_channels, ch, num_res_blocks, resolution,
                  ch_mult=(2,2), dropout=0.0):
         super().__init__()
-        # upsampling
         self.temb_ch = 0
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
@@ -714,7 +663,6 @@ class UpsampleDecoder(nn.Module):
                 self.upsample_blocks.append(Upsample(block_in, True))
                 curr_res = curr_res * 2
 
-        # end
         self.norm_out = Normalize(block_in)
         self.conv_out = torch.nn.Conv2d(block_in,
                                         out_channels,
@@ -723,7 +671,6 @@ class UpsampleDecoder(nn.Module):
                                         padding=1)
 
     def forward(self, x):
-        # upsampling
         h = x
         for k, i_level in enumerate(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks + 1):
@@ -739,7 +686,6 @@ class UpsampleDecoder(nn.Module):
 class LatentRescaler(nn.Module):
     def __init__(self, factor, in_channels, mid_channels, out_channels, depth=2):
         super().__init__()
-        # residual block, interpolate, residual block
         self.factor = factor
         self.conv_in = nn.Conv2d(in_channels,
                                  mid_channels,
@@ -837,7 +783,6 @@ class Resize(nn.Module):
             print(f"Note: {self.__class__.__name} uses learned downsampling and will ignore the fixed {mode} mode")
             raise NotImplementedError()
             assert in_channels is not None
-            # no asymmetric padding in torch conv, must do it ourselves
             self.conv = torch.nn.Conv2d(in_channels,
                                         in_channels,
                                         kernel_size=4,

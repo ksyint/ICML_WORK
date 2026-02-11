@@ -111,7 +111,6 @@ class AutoencoderKL(pl.LightningModule):
         reconstructions, posterior = self(inputs)
 
         if optimizer_idx == 0:
-            # train encoder+decoder+logvar
             aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
@@ -119,7 +118,6 @@ class AutoencoderKL(pl.LightningModule):
             return aeloss
 
         if optimizer_idx == 1:
-            # train the discriminator
             discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
                                                 last_layer=self.get_last_layer(), split="train")
 
@@ -171,7 +169,6 @@ class AutoencoderKL(pl.LightningModule):
         if not only_inputs:
             xrec, posterior = self(x)
             if x.shape[1] > 3:
-                # colorize with random projection
                 assert xrec.shape[1] > 3
                 x = self.to_rgb(x)
                 xrec = self.to_rgb(xrec)
@@ -181,7 +178,6 @@ class AutoencoderKL(pl.LightningModule):
                 with self.ema_scope():
                     xrec_ema, posterior_ema = self(x)
                     if x.shape[1] > 3:
-                        # colorize with random projection
                         assert xrec_ema.shape[1] > 3
                         xrec_ema = self.to_rgb(xrec_ema)
                     log["samples_ema"] = self.decode(torch.randn_like(posterior_ema.sample()))
@@ -216,4 +212,3 @@ class IdentityFirstStage(torch.nn.Module):
 
     def forward(self, x, *args, **kwargs):
         return x
-

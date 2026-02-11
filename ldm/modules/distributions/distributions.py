@@ -63,12 +63,6 @@ class DiagonalGaussianDistribution(object):
 
 
 def normal_kl(mean1, logvar1, mean2, logvar2):
-    """
-    source: https://github.com/openai/guided-diffusion/blob/27c20a8fab9cb472df5d6bdd6c8d11c8f430b924/guided_diffusion/losses.py#L12
-    Compute the KL divergence between two gaussians.
-    Shapes are automatically broadcasted, so batches can be compared to
-    scalars, among other use cases.
-    """
     tensor = None
     for obj in (mean1, logvar1, mean2, logvar2):
         if isinstance(obj, torch.Tensor):
@@ -76,8 +70,6 @@ def normal_kl(mean1, logvar1, mean2, logvar2):
             break
     assert tensor is not None, "at least one argument must be a Tensor"
 
-    # Force variances to be Tensors. Broadcasting helps convert scalars to
-    # Tensors, but it does not work for torch.exp().
     logvar1, logvar2 = [
         x if isinstance(x, torch.Tensor) else torch.tensor(x).to(tensor)
         for x in (logvar1, logvar2)

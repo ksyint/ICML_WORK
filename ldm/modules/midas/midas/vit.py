@@ -126,20 +126,20 @@ def forward_flex(self, x):
     if hasattr(self.patch_embed, "backbone"):
         x = self.patch_embed.backbone(x)
         if isinstance(x, (list, tuple)):
-            x = x[-1]  # last feature if backbone outputs list/tuple of features
+            x = x[-1]
 
     x = self.patch_embed.proj(x).flatten(2).transpose(1, 2)
 
     if getattr(self, "dist_token", None) is not None:
         cls_tokens = self.cls_token.expand(
             B, -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
+        )
         dist_token = self.dist_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
     else:
         cls_tokens = self.cls_token.expand(
             B, -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
+        )
         x = torch.cat((cls_tokens, x), dim=1)
 
     x = x + pos_embed
@@ -201,7 +201,6 @@ def _make_vit_b16_backbone(
 
     readout_oper = get_readout_oper(vit_features, features, use_readout, start_index)
 
-    # 32, 48, 136, 384
     pretrained.act_postprocess1 = nn.Sequential(
         readout_oper[0],
         Transpose(1, 2),
@@ -284,8 +283,6 @@ def _make_vit_b16_backbone(
     pretrained.model.start_index = start_index
     pretrained.model.patch_size = [16, 16]
 
-    # We inject this function into the VisionTransformer instances so that
-    # we can use it with interpolated position embeddings without modifying the library source.
     pretrained.model.forward_flex = types.MethodType(forward_flex, pretrained.model)
     pretrained.model._resize_pos_embed = types.MethodType(
         _resize_pos_embed, pretrained.model
@@ -462,12 +459,8 @@ def _make_vit_b_rn50_backbone(
     pretrained.model.start_index = start_index
     pretrained.model.patch_size = [16, 16]
 
-    # We inject this function into the VisionTransformer instances so that
-    # we can use it with interpolated position embeddings without modifying the library source.
     pretrained.model.forward_flex = types.MethodType(forward_flex, pretrained.model)
 
-    # We inject this function into the VisionTransformer instances so that
-    # we can use it with interpolated position embeddings without modifying the library source.
     pretrained.model._resize_pos_embed = types.MethodType(
         _resize_pos_embed, pretrained.model
     )

@@ -17,7 +17,6 @@ class AddMiDaS(object):
         return x
 
     def __call__(self, sample):
-        # sample['jpg'] is tensor hwc in [-1, 1] at this point
         x = self.pt2np(sample['jpg'])
         x = self.transform({"image": x})["image"]
         sample['midas_in'] = x

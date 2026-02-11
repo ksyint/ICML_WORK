@@ -44,11 +44,10 @@ class DPT(BaseModel):
             "vitl16_384": [5, 11, 17, 23],
         }
 
-        # Instantiate backbone and reassemble blocks
         self.pretrained, self.scratch = _make_encoder(
             backbone,
             features,
-            False, # Set to true of you want to train from scratch, uses ImageNet weights
+            False,
             groups=1,
             expand=False,
             exportable=False,
@@ -106,4 +105,3 @@ class DPTDepthModel(DPT):
 
     def forward(self, x):
         return super().forward(x).squeeze(dim=1)
-

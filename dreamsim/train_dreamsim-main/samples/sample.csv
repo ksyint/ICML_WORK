@@ -1,2 +1,0 @@
-id,left_vote,right_vote,votes,ref_path,left_path,right_path,split,is_imagenet,prompt
-0,0,1,9,sketch/n01440764/sketch_1.JPEG,sketch/n01440764/sketch_0.JPEG,sketch/n01440764/sketch_2.JPEG,,,

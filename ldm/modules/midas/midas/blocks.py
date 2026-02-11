@@ -15,7 +15,7 @@ def _make_encoder(backbone, features, use_pretrained, groups=1, expand=False, ex
         )
         scratch = _make_scratch(
             [256, 512, 1024, 1024], features, groups=groups, expand=expand
-        )  # ViT-L/16 - 85.0% Top1 (backbone)
+        )
     elif backbone == "vitb_rn50_384":
         pretrained = _make_pretrained_vitb_rn50_384(
             use_pretrained,
@@ -25,20 +25,20 @@ def _make_encoder(backbone, features, use_pretrained, groups=1, expand=False, ex
         )
         scratch = _make_scratch(
             [256, 512, 768, 768], features, groups=groups, expand=expand
-        )  # ViT-H/16 - 85.0% Top1 (backbone)
+        )
     elif backbone == "vitb16_384":
         pretrained = _make_pretrained_vitb16_384(
             use_pretrained, hooks=hooks, use_readout=use_readout
         )
         scratch = _make_scratch(
             [96, 192, 384, 768], features, groups=groups, expand=expand
-        )  # ViT-B/16 - 84.6% Top1 (backbone)
+        )
     elif backbone == "resnext101_wsl":
         pretrained = _make_pretrained_resnext101_wsl(use_pretrained)
-        scratch = _make_scratch([256, 512, 1024, 2048], features, groups=groups, expand=expand)     # efficientnet_lite3  
+        scratch = _make_scratch([256, 512, 1024, 2048], features, groups=groups, expand=expand)
     elif backbone == "efficientnet_lite3":
         pretrained = _make_pretrained_efficientnet_lite3(use_pretrained, exportable=exportable)
-        scratch = _make_scratch([32, 48, 136, 384], features, groups=groups, expand=expand)  # efficientnet_lite3     
+        scratch = _make_scratch([32, 48, 136, 384], features, groups=groups, expand=expand)
     else:
         print(f"Backbone '{backbone}' not implemented")
         assert False
@@ -116,18 +116,9 @@ def _make_pretrained_resnext101_wsl(use_pretrained):
     return _make_resnet_backbone(resnet)
 
 
-
 class Interpolate(nn.Module):
-    """Interpolation module.
-    """
 
     def __init__(self, scale_factor, mode, align_corners=False):
-        """Init.
-
-        Args:
-            scale_factor (float): scaling
-            mode (str): interpolation mode
-        """
         super(Interpolate, self).__init__()
 
         self.interp = nn.functional.interpolate
@@ -136,14 +127,6 @@ class Interpolate(nn.Module):
         self.align_corners = align_corners
 
     def forward(self, x):
-        """Forward pass.
-
-        Args:
-            x (tensor): input
-
-        Returns:
-            tensor: interpolated data
-        """
 
         x = self.interp(
             x, scale_factor=self.scale_factor, mode=self.mode, align_corners=self.align_corners
@@ -153,15 +136,8 @@ class Interpolate(nn.Module):
 
 
 class ResidualConvUnit(nn.Module):
-    """Residual convolution module.
-    """
 
     def __init__(self, features):
-        """Init.
-
-        Args:
-            features (int): number of features
-        """
         super().__init__()
 
         self.conv1 = nn.Conv2d(
@@ -175,14 +151,6 @@ class ResidualConvUnit(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        """Forward pass.
-
-        Args:
-            x (tensor): input
-
-        Returns:
-            tensor: output
-        """
         out = self.relu(x)
         out = self.conv1(out)
         out = self.relu(out)
@@ -192,26 +160,14 @@ class ResidualConvUnit(nn.Module):
 
 
 class FeatureFusionBlock(nn.Module):
-    """Feature fusion block.
-    """
 
     def __init__(self, features):
-        """Init.
-
-        Args:
-            features (int): number of features
-        """
         super(FeatureFusionBlock, self).__init__()
 
         self.resConfUnit1 = ResidualConvUnit(features)
         self.resConfUnit2 = ResidualConvUnit(features)
 
     def forward(self, *xs):
-        """Forward pass.
-
-        Returns:
-            tensor: output
-        """
         output = xs[0]
 
         if len(xs) == 2:
@@ -226,18 +182,9 @@ class FeatureFusionBlock(nn.Module):
         return output
 
 
-
-
 class ResidualConvUnit_custom(nn.Module):
-    """Residual convolution module.
-    """
 
     def __init__(self, features, activation, bn):
-        """Init.
-
-        Args:
-            features (int): number of features
-        """
         super().__init__()
 
         self.bn = bn
@@ -261,14 +208,6 @@ class ResidualConvUnit_custom(nn.Module):
         self.skip_add = nn.quantized.FloatFunctional()
 
     def forward(self, x):
-        """Forward pass.
-
-        Args:
-            x (tensor): input
-
-        Returns:
-            tensor: output
-        """
         
         out = self.activation(x)
         out = self.conv1(out)
@@ -285,19 +224,10 @@ class ResidualConvUnit_custom(nn.Module):
 
         return self.skip_add.add(out, x)
 
-        # return out + x
-
 
 class FeatureFusionBlock_custom(nn.Module):
-    """Feature fusion block.
-    """
 
     def __init__(self, features, activation, deconv=False, bn=False, expand=False, align_corners=True):
-        """Init.
-
-        Args:
-            features (int): number of features
-        """
         super(FeatureFusionBlock_custom, self).__init__()
 
         self.deconv = deconv
@@ -318,17 +248,11 @@ class FeatureFusionBlock_custom(nn.Module):
         self.skip_add = nn.quantized.FloatFunctional()
 
     def forward(self, *xs):
-        """Forward pass.
-
-        Returns:
-            tensor: output
-        """
         output = xs[0]
 
         if len(xs) == 2:
             res = self.resConfUnit1(xs[1])
             output = self.skip_add.add(output, res)
-            # output += res
 
         output = self.resConfUnit2(output)
 
@@ -339,4 +263,3 @@ class FeatureFusionBlock_custom(nn.Module):
         output = self.out_conv(output)
 
         return output
-

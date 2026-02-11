@@ -28,7 +28,6 @@ def hack_everything(clip_skip=0):
     return
 
 
-# Written by Lvmin
 def _hacked_clip_forward(self, text):
     PAD = self.tokenizer.pad_token_id
     EOS = self.tokenizer.eos_token_id
@@ -68,7 +67,6 @@ def _hacked_clip_forward(self, text):
     return z
 
 
-# Stolen from https://github.com/basujindal/stable-diffusion/blob/main/optimizedSD/splitAttention.py
 def _hacked_sliced_attentin_forward(self, x, context=None, mask=None):
     h = self.heads
 
@@ -98,7 +96,6 @@ def _hacked_sliced_attentin_forward(self, x, context=None, mask=None):
         sim_buffer = torch.einsum('b i d, b j d -> b i j', q_buffer, k_buffer) * self.scale
 
         del k_buffer, q_buffer
-        # attention, what we cannot get enough of, by chunks
 
         sim_buffer = sim_buffer.softmax(dim=-1)
 

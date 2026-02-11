@@ -1,9 +1,0 @@
-A 68 years old Female patient's chest X-ray with Edema
-A 87 years old Female patient's chest X-ray with Atelectasis
-A 83 years old Female patient's chest X-ray with Atelectasis
-A 41 years old Male patient's chest X-ray with Fracture
-A 20 years old Female patient's chest X-ray with Edema
-A 33 years old Male patient's chest X-ray with Edema
-A 33 years old Male patient's chest X-ray wit
-A 33 years old Male patient's chest X-ray wit
-A 42 years old Female patient's chest X-ray with Edema

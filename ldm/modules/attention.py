@@ -16,7 +16,6 @@ try:
 except:
     XFORMERS_IS_AVAILBLE = False
 
-# CrossAttn precision handling
 import os
 _ATTN_PRECISION = os.environ.get("ATTN_PRECISION", "fp32")
 
@@ -45,7 +44,6 @@ def init_(tensor):
     return tensor
 
 
-# feedforward
 class GEGLU(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
@@ -77,9 +75,6 @@ class FeedForward(nn.Module):
 
 
 def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
     for p in module.parameters():
         p.detach().zero_()
     return module
@@ -123,7 +118,6 @@ class SpatialSelfAttention(nn.Module):
         k = self.k(h_)
         v = self.v(h_)
 
-        # compute attention
         b,c,h,w = q.shape
         q = rearrange(q, 'b c h w -> b (h w) c')
         k = rearrange(k, 'b c h w -> b c (h w)')
@@ -132,7 +126,6 @@ class SpatialSelfAttention(nn.Module):
         w_ = w_ * (int(c)**(-0.5))
         w_ = torch.nn.functional.softmax(w_, dim=2)
 
-        # attend to values
         v = rearrange(v, 'b c h w -> b c (h w)')
         w_ = rearrange(w_, 'b i j -> b j i')
         h_ = torch.einsum('bij,bjk->bik', v, w_)
@@ -170,7 +163,6 @@ class CrossAttention(nn.Module):
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
-        # force cast to fp32 to avoid overflowing
         if _ATTN_PRECISION =="fp32":
             with torch.autocast(enabled=False, device_type = 'cuda'):
                 q, k = q.float(), k.float()
@@ -186,7 +178,6 @@ class CrossAttention(nn.Module):
             mask = repeat(mask, 'b j -> (b h) () j', h=h)
             sim.masked_fill_(~mask, max_neg_value)
 
-        # attention, what we cannot get enough of
         sim = sim.softmax(dim=-1)
 
         out = einsum('b i j, b j d -> b i d', sim, v)
@@ -195,7 +186,6 @@ class CrossAttention(nn.Module):
 
 
 class MemoryEfficientCrossAttention(nn.Module):
-    # https://github.com/MatthieuTPHR/diffusers/blob/d80b531ff8060ec1ea982b65a1b8df70f73aa67c/src/diffusers/models/attention.py#L223
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.0):
         super().__init__()
         print(f"Setting up {self.__class__.__name__}. Query dim is {query_dim}, context_dim is {context_dim} and using "
@@ -229,7 +219,6 @@ class MemoryEfficientCrossAttention(nn.Module):
             (q, k, v),
         )
 
-        # actually compute the attention, what we cannot get enough of
         out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=None, op=self.attention_op)
 
         if exists(mask):
@@ -245,7 +234,7 @@ class MemoryEfficientCrossAttention(nn.Module):
 
 class BasicTransformerBlock(nn.Module):
     ATTENTION_MODES = {
-        "softmax": CrossAttention,  # vanilla attention
+        "softmax": CrossAttention,
         "softmax-xformers": MemoryEfficientCrossAttention
     }
     def __init__(self, dim, n_heads, d_head, dropout=0., context_dim=None, gated_ff=True, checkpoint=True,
@@ -256,10 +245,10 @@ class BasicTransformerBlock(nn.Module):
         attn_cls = self.ATTENTION_MODES[attn_mode]
         self.disable_self_attn = disable_self_attn
         self.attn1 = attn_cls(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout,
-                              context_dim=context_dim if self.disable_self_attn else None)  # is a self-attention if not self.disable_self_attn
+                              context_dim=context_dim if self.disable_self_attn else None)
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff)
         self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
-                              heads=n_heads, dim_head=d_head, dropout=dropout)  # is self-attn if context is none
+                              heads=n_heads, dim_head=d_head, dropout=dropout)
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
@@ -276,14 +265,6 @@ class BasicTransformerBlock(nn.Module):
 
 
 class SpatialTransformer(nn.Module):
-    """
-    Transformer block for image-like data.
-    First, project the input (aka embedding)
-    and reshape to b, t, d.
-    Then apply standard transformer action.
-    Finally, reshape to image
-    NEW: use_linear for more efficiency instead of the 1x1 convs
-    """
     def __init__(self, in_channels, n_heads, d_head,
                  depth=1, dropout=0., context_dim=None,
                  disable_self_attn=False, use_linear=False,
@@ -319,7 +300,6 @@ class SpatialTransformer(nn.Module):
         self.use_linear = use_linear
 
     def forward(self, x, context=None):
-        # note: if no context is given, cross-attention defaults to self-attention
         if not isinstance(context, list):
             context = [context]
         b, c, h, w = x.shape
@@ -338,4 +318,3 @@ class SpatialTransformer(nn.Module):
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
-

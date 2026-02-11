@@ -1,4 +1,3 @@
-"""Utils for monoDepth."""
 import sys
 import re
 import numpy as np
@@ -7,14 +6,6 @@ import torch
 
 
 def read_pfm(path):
-    """Read pfm file.
-
-    Args:
-        path (str): path to file
-
-    Returns:
-        tuple: (data, scale)
-    """
     with open(path, "rb") as file:
 
         color = None
@@ -39,11 +30,9 @@ def read_pfm(path):
 
         scale = float(file.readline().decode("ascii").rstrip())
         if scale < 0:
-            # little-endian
             endian = "<"
             scale = -scale
         else:
-            # big-endian
             endian = ">"
 
         data = np.fromfile(file, endian + "f")
@@ -56,13 +45,6 @@ def read_pfm(path):
 
 
 def write_pfm(path, image, scale=1):
-    """Write pfm file.
-
-    Args:
-        path (str): pathto file
-        image (array): data
-        scale (int, optional): Scale. Defaults to 1.
-    """
 
     with open(path, "wb") as file:
         color = None
@@ -72,11 +54,11 @@ def write_pfm(path, image, scale=1):
 
         image = np.flipud(image)
 
-        if len(image.shape) == 3 and image.shape[2] == 3:  # color image
+        if len(image.shape) == 3 and image.shape[2] == 3:
             color = True
         elif (
             len(image.shape) == 2 or len(image.shape) == 3 and image.shape[2] == 1
-        ):  # greyscale
+        ):
             color = False
         else:
             raise Exception("Image must have H x W x 3, H x W x 1 or H x W dimensions.")
@@ -95,14 +77,6 @@ def write_pfm(path, image, scale=1):
 
 
 def read_image(path):
-    """Read image and output RGB image (0-1).
-
-    Args:
-        path (str): path to file
-
-    Returns:
-        array: RGB image (0-1)
-    """
     img = cv2.imread(path)
 
     if img.ndim == 2:
@@ -114,14 +88,6 @@ def read_image(path):
 
 
 def resize_image(img):
-    """Resize image and make it fit for network.
-
-    Args:
-        img (array): image
-
-    Returns:
-        tensor: data ready for network
-    """
     height_orig = img.shape[0]
     width_orig = img.shape[1]
 
@@ -144,16 +110,6 @@ def resize_image(img):
 
 
 def resize_depth(depth, width, height):
-    """Resize depth map and bring to CPU (numpy).
-
-    Args:
-        depth (tensor): depth
-        width (int): image width
-        height (int): image height
-
-    Returns:
-        array: processed depth
-    """
     depth = torch.squeeze(depth[0, :, :, :]).to("cpu")
 
     depth_resized = cv2.resize(
@@ -163,12 +119,6 @@ def resize_depth(depth, width, height):
     return depth_resized
 
 def write_depth(path, depth, bits=1):
-    """Write depth map to pfm and png file.
-
-    Args:
-        path (str): filepath without extension
-        depth (array): depth
-    """
     write_pfm(path + ".pfm", depth.astype(np.float32))
 
     depth_min = depth.min()

@@ -8,7 +8,6 @@ from ldm.util import default
 
 
 class AbstractLowScaleModel(nn.Module):
-    # for concatenating a downsampled image to the latent representation
     def __init__(self, noise_schedule_config=None):
         super(AbstractLowScaleModel, self).__init__()
         if noise_schedule_config is not None:
@@ -34,7 +33,6 @@ class AbstractLowScaleModel(nn.Module):
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(alphas_cumprod_prev))
 
-        # calculations for diffusion q(x_t | x_{t-1}) and others
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod)))
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
@@ -54,13 +52,11 @@ class AbstractLowScaleModel(nn.Module):
 
 
 class SimpleImageConcat(AbstractLowScaleModel):
-    # no noise level conditioning
     def __init__(self):
         super(SimpleImageConcat, self).__init__(noise_schedule_config=None)
         self.max_noise_level = 0
 
     def forward(self, x):
-        # fix to constant noise level
         return x, torch.zeros(x.shape[0], device=x.device).long()
 
 
@@ -76,6 +72,3 @@ class ImageConcatWithNoiseAugmentation(AbstractLowScaleModel):
             assert isinstance(noise_level, torch.Tensor)
         z = self.q_sample(x, noise_level)
         return z, noise_level
-
-
-

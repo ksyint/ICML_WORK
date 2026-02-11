@@ -15,7 +15,6 @@ class LitEma(nn.Module):
 
         for name, p in model.named_parameters():
             if p.requires_grad:
-                # remove as '.'-character is not allowed in buffers
                 s_name = name.replace('.', '')
                 self.m_name2s_name.update({name: s_name})
                 self.register_buffer(s_name, p.clone().detach().data)
@@ -57,24 +56,8 @@ class LitEma(nn.Module):
                 assert not key in self.m_name2s_name
 
     def store(self, parameters):
-        """
-        Save the current parameters for restoring later.
-        Args:
-          parameters: Iterable of `torch.nn.Parameter`; the parameters to be
-            temporarily stored.
-        """
         self.collected_params = [param.clone() for param in parameters]
 
     def restore(self, parameters):
-        """
-        Restore the parameters stored with the `store` method.
-        Useful to validate the model with EMA parameters without affecting the
-        original optimization process. Store the parameters before the
-        `copy_to` method. After validation (or model saving), use this to
-        restore the former parameters.
-        Args:
-          parameters: Iterable of `torch.nn.Parameter`; the parameters to be
-            updated with the stored parameters.
-        """
         for c_param, param in zip(self.collected_params, parameters):
             param.data.copy_(c_param.data)
